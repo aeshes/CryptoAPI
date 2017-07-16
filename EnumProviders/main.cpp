@@ -1,4 +1,6 @@
 #include <iostream>
+#include <memory>
+#include <map>
 
 #include <windows.h>
 #include <wincrypt.h>
@@ -6,16 +8,15 @@
 #pragma comment(lib, "advapi32.lib")
 
 
-template <typename T>
-void PRINT_FUNC(T *pszStr)
-{
-#ifdef UNICODE
-#  define os std::wcout
-#else
-#  define os std::cout
-#endif
 
-	os << pszStr << std::endl;
+std::ostream& PRINT_FUNC(LPCSTR pszData)
+{
+	return std::cout << pszData;
+}
+
+std::wostream& PRINT_FUNC(LPCWSTR pszData)
+{
+	return std::wcout << pszData;
 }
 
 void EnumProviderNames(void)
@@ -28,33 +29,32 @@ void EnumProviderNames(void)
 		NULL,							// Get prov name size in bytes
 		&cbName))						// Prov name size
 	{
-		TCHAR *pszName = NULL;
-		if (!(pszName = (PTCHAR)LocalAlloc(LMEM_ZEROINIT, cbName)))
-		{
-			std::cout << "LocalAlloc failed" << std::endl;
-			exit(1);
-		}
+		std::shared_ptr<TCHAR> pszName(new TCHAR[cbName / sizeof(TCHAR)]);
 
 		if (CryptEnumProviders(dwIndex++,
 			NULL,
 			0,
 			&dwType,
-			(LPTSTR)pszName,
+			pszName.get(),
 			&cbName))
 		{
-			PRINT_FUNC(pszName);
+			PRINT_FUNC(pszName.get()) << std::endl;
 		}
 		else
 		{
-			std::cout << "CryptEnumProviders failed" << std::endl;
+			std::wcout << "CryptEnumProviders failed" << std::endl;
 			exit(1);
 		}
-		LocalFree(pszName);
 	}
 }
 
-void EnumProviderTypes(void)
+using PtrType = std::shared_ptr<TCHAR>;
+using TypesDictionary = std::map<PtrType, DWORD>;
+
+TypesDictionary EnumProviderTypes(void)
 {
+	TypesDictionary installedTypes;
+
 	DWORD dwIndex = 0, dwProvType = 0, cbName = 0;
 	while (CryptEnumProviderTypes(
 		dwIndex,
@@ -64,37 +64,36 @@ void EnumProviderTypes(void)
 		NULL,			// Get name length in bytes
 		&cbName))
 	{
-		TCHAR *pszName = NULL;
-		if (!(pszName = (PTCHAR)LocalAlloc(LMEM_ZEROINIT, cbName)))
-		{
-			std::cout << "LocalAlloc failed" << std::endl;
-			exit(1);
-		}
+		std::shared_ptr<TCHAR> pszName(new TCHAR[cbName / sizeof(TCHAR)]);
 
 		if (CryptEnumProviderTypes(dwIndex++,
 			NULL,
 			0,
 			&dwProvType,
-			pszName,
+			pszName.get(),
 			&cbName))
 		{
-			PRINT_FUNC(pszName);
+			installedTypes.insert({ pszName, dwProvType });
 		}
 		else
 		{
-			std::cout << "CryptEnumProviderTypes failed" << std::endl;
+			std::wcout << "CryptEnumProviderTypes failed" << std::endl;
 			exit(1);
 		}
-		LocalFree(pszName);
 	}
+	return installedTypes;
 }
 
 int main()
 {
-	std::cout << "Enumerating prov names:" << std::endl;
+	std::wcout << "Enumerating prov names:" << std::endl;
 	EnumProviderNames();
 
-	std::cout << std::endl;
-	std::cout << "Enumerating prov types" << std::endl;
-	EnumProviderTypes();
+	std::wcout << std::endl;
+	std::wcout << "Enumerating prov types" << std::endl;
+	auto provTypes = EnumProviderTypes();
+	for (const auto& type : provTypes)
+	{
+		PRINT_FUNC(type.first.get()) << std::endl;
+	}
 }
